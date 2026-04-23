@@ -29,7 +29,7 @@ class FuelTrackerCard extends HTMLElement {
 
     this._config = {
       title: "Fuel Tracker",
-      show_header: true,
+      show_header: false,
       show_updated: true,
       show_station_details: true,
       ...config
