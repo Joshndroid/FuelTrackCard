@@ -4,7 +4,6 @@ class FuelTrackerCard extends HTMLElement {
   static getStubConfig() {
     return {
       type: "custom:fuel-tracker-card",
-      title: "Fuel Tracker",
       fuels: [
         {
           name: "Unleaded 98",
@@ -28,7 +27,7 @@ class FuelTrackerCard extends HTMLElement {
     }
 
     this._config = {
-      title: "Fuel Tracker",
+      title: "",
       show_header: false,
       show_updated: true,
       show_station_details: true,
@@ -54,7 +53,7 @@ class FuelTrackerCard extends HTMLElement {
     this.innerHTML = `
       <ha-card>
         <div class="fuel-card">
-          ${this._config.show_header ? this._header() : ""}
+          ${this._config.show_header && this._config.title ? this._header() : ""}
           <div class="fuel-grid">
             ${fuels.map((fuel) => this._fuelPanel(fuel)).join("")}
           </div>
@@ -173,7 +172,6 @@ class FuelTrackerCardEditor extends HTMLElement {
       <div class="editor">
         <p>Configure this card in YAML. Add one fuel item per tracked fuel type.</p>
         <pre>type: custom:fuel-tracker-card
-title: Fuel Tracker
 fuels:
   - name: Unleaded 98
     cheapest_price_entity: sensor.premium_unleaded_98_cheapest_price
