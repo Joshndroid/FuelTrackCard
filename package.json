@@ -1,0 +1,16 @@
+{
+  "name": "fuel-tracker-card",
+  "version": "0.1.0",
+  "description": "Lovelace card for fuel price tracking",
+  "type": "module",
+  "files": [
+    "dist/fuel-tracker-card.js",
+    "src/fuel-tracker-card.js",
+    "README.md",
+    "hacs.json"
+  ],
+  "scripts": {
+    "build": "cp src/fuel-tracker-card.js dist/fuel-tracker-card.js"
+  },
+  "license": "MIT"
+}
