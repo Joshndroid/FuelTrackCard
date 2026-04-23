@@ -51,14 +51,10 @@ class FuelTrackerCard extends HTMLElement {
     if (!this._config || !this._hass) return;
 
     const fuels = this._config.fuels.map((fuel) => this._fuelView(fuel));
-    const best = fuels
-      .filter((fuel) => fuel.priceNumber !== null)
-      .sort((a, b) => a.priceNumber - b.priceNumber)[0];
-
     this.innerHTML = `
       <ha-card>
         <div class="fuel-card">
-          ${this._config.show_header ? this._header(best) : ""}
+          ${this._config.show_header ? this._header() : ""}
           <div class="fuel-grid">
             ${fuels.map((fuel) => this._fuelPanel(fuel)).join("")}
           </div>
@@ -68,20 +64,10 @@ class FuelTrackerCard extends HTMLElement {
     `;
   }
 
-  _header(best) {
-    const status = best
-      ? `${best.name} · ${best.priceDisplay}`
-      : "Waiting for fuel data";
-
+  _header() {
     return `
       <div class="header">
-        <div>
-          <h2>${escapeHtml(this._config.title)}</h2>
-          <p>${escapeHtml(status)}</p>
-        </div>
-        <div class="header-badge ${best ? recommendationClass(best.recommendation) : "unknown"}">
-          ${best ? recommendationLabel(best.recommendation) : "Unknown"}
-        </div>
+        <h2>${escapeHtml(this._config.title)}</h2>
       </div>
     `;
   }
@@ -292,14 +278,10 @@ const styles = `
   }
 
   .header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
 
-  h2, h3, p {
+  h2, h3 {
     margin: 0;
     letter-spacing: 0;
   }
@@ -314,22 +296,8 @@ const styles = `
     font-weight: 700;
   }
 
-  .header p {
-    margin-top: 3px;
-    color: var(--secondary-text-color);
-    font-size: .9rem;
-  }
-
-  .header-badge,
   .recommendation {
     border-radius: 8px;
-  }
-
-  .header-badge {
-    padding: 7px 10px;
-    font-size: .8rem;
-    font-weight: 700;
-    white-space: nowrap;
   }
 
   .fuel-grid {
@@ -495,16 +463,6 @@ const styles = `
   @media (max-width: 520px) {
     .fuel-card {
       padding: 12px;
-    }
-
-    .header {
-      align-items: stretch;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .header-badge {
-      align-self: flex-start;
     }
 
     .fuel-grid {
