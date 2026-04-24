@@ -116,22 +116,22 @@ class FuelTrackerCard extends HTMLElement {
   }
 
   _comparisonMetrics(fuel) {
-    if (!fuel.regionalAverage && !fuel.regionalCheapest && !fuel.capitalAverage && !fuel.capitalCheapest) return "";
+    if (!fuel.regionalComparison && !fuel.capitalComparison) return "";
 
     return `
       <div class="comparison-metrics">
-        ${fuel.regionalAverage || fuel.regionalCheapest ? `
+        ${fuel.regionalComparison ? `
           <div>
-            <span>${escapeHtml(fuel.regionalLabel)}</span>
-            <strong>${escapeHtml(formatEntityPrice(fuel.regionalCheapest || fuel.regionalAverage))}</strong>
-            <small>${escapeHtml(comparisonDetail(fuel.regionalAverage, fuel.regionalStationCount))}</small>
+            <span>${escapeHtml(fuel.regionalComparison.label)}</span>
+            <strong>${escapeHtml(formatEntityPrice(fuel.regionalComparison.state))}</strong>
+            <small>${escapeHtml(fuel.regionalComparison.detail)}</small>
           </div>
         ` : ""}
-        ${fuel.capitalAverage || fuel.capitalCheapest ? `
+        ${fuel.capitalComparison ? `
           <div>
-            <span>${escapeHtml(fuel.capitalLabel)}</span>
-            <strong>${escapeHtml(formatEntityPrice(fuel.capitalCheapest || fuel.capitalAverage))}</strong>
-            <small>${escapeHtml(comparisonDetail(fuel.capitalAverage, fuel.capitalStationCount))}</small>
+            <span>${escapeHtml(fuel.capitalComparison.label)}</span>
+            <strong>${escapeHtml(formatEntityPrice(fuel.capitalComparison.state))}</strong>
+            <small>${escapeHtml(fuel.capitalComparison.detail)}</small>
           </div>
         ` : ""}
       </div>
@@ -167,6 +167,18 @@ class FuelTrackerCard extends HTMLElement {
     const regionalCheapest = entity(this._hass, config.regional_cheapest_entity);
     const capitalAverage = entity(this._hass, config.capital_average_entity);
     const capitalCheapest = entity(this._hass, config.capital_cheapest_entity);
+    const regionalComparison = comparisonView(
+      regionalCheapest,
+      regionalAverage,
+      "regional_city",
+      "Regional"
+    );
+    const capitalComparison = comparisonView(
+      capitalCheapest,
+      capitalAverage,
+      "capital_city",
+      "Capital"
+    );
 
     const name = config.name || station?.attributes?.fuel_type || price?.attributes?.fuel_type || "Fuel";
     const priceNumber = numberState(price);
@@ -187,10 +199,8 @@ class FuelTrackerCard extends HTMLElement {
       regionalCheapest,
       capitalAverage,
       capitalCheapest,
-      regionalLabel: comparisonLabel(regionalAverage || regionalCheapest, "regional_city", "Regional"),
-      capitalLabel: comparisonLabel(capitalAverage || capitalCheapest, "capital_city", "Capital"),
-      regionalStationCount: regionalAverage?.attributes?.station_count || regionalCheapest?.attributes?.station_count,
-      capitalStationCount: capitalAverage?.attributes?.station_count || capitalCheapest?.attributes?.station_count
+      regionalComparison,
+      capitalComparison
     };
   }
 }
@@ -265,9 +275,20 @@ function formatStationCount(value) {
   return `${count} station${count === 1 ? "" : "s"}`;
 }
 
-function comparisonLabel(stateObj, cityAttribute, fallback) {
-  const city = stateObj?.attributes?.[cityAttribute];
-  return city ? `${city} cheapest` : `${fallback} cheapest`;
+function comparisonView(cheapestState, averageState, cityAttribute, fallback) {
+  const state = cheapestState || averageState;
+  if (!state) return null;
+
+  const isCheapest = Boolean(cheapestState);
+  const city = state.attributes?.[cityAttribute];
+  const prefix = city || fallback;
+  const stationCount = state.attributes?.station_count;
+
+  return {
+    state,
+    label: `${prefix} ${isCheapest ? "cheapest" : "average"}`,
+    detail: comparisonDetail(isCheapest ? averageState : undefined, stationCount)
+  };
 }
 
 function comparisonDetail(averageState, stationCount) {

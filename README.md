@@ -86,6 +86,10 @@ capital_average_entity: sensor.example_capital_average_price
 capital_cheapest_entity: sensor.example_capital_cheapest_price
 ```
 
+For regional and capital comparison tiles, use either the `*_average_entity` sensor or
+the `*_cheapest_entity` sensor. If both are configured, the card displays the cheapest
+price and shows the average as supporting detail.
+
 Station rows open Waze using the station coordinates.
 
 ## Development
