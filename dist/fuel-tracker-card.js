@@ -11,7 +11,9 @@ class FuelTrackerCard extends HTMLElement {
           cheapest_station_entity: "sensor.premium_unleaded_98_cheapest_station",
           recommendation_entity: "sensor.premium_unleaded_98_recommendation",
           trend_entity: "sensor.premium_unleaded_98_trend",
-          average_price_entity: "sensor.premium_unleaded_98_average_price"
+          average_price_entity: "sensor.premium_unleaded_98_average_price",
+          regional_average_entity: "sensor.premium_unleaded_98_regional_average_price",
+          capital_average_entity: "sensor.premium_unleaded_98_capital_average_price"
         }
       ]
     };
@@ -107,8 +109,32 @@ class FuelTrackerCard extends HTMLElement {
           </div>
         </div>
 
+        ${this._comparisonMetrics(fuel)}
         ${this._config.show_station_details ? this._stationBlock(fuel, attrs, mapUrl) : ""}
       </section>
+    `;
+  }
+
+  _comparisonMetrics(fuel) {
+    if (!fuel.regionalAverage && !fuel.capitalAverage) return "";
+
+    return `
+      <div class="comparison-metrics">
+        ${fuel.regionalAverage ? `
+          <div>
+            <span>${escapeHtml(fuel.regionalLabel)}</span>
+            <strong>${escapeHtml(formatEntityPrice(fuel.regionalAverage))}</strong>
+            <small>${escapeHtml(fuel.regionalStationCount)}</small>
+          </div>
+        ` : ""}
+        ${fuel.capitalAverage ? `
+          <div>
+            <span>${escapeHtml(fuel.capitalLabel)}</span>
+            <strong>${escapeHtml(formatEntityPrice(fuel.capitalAverage))}</strong>
+            <small>${escapeHtml(fuel.capitalStationCount)}</small>
+          </div>
+        ` : ""}
+      </div>
     `;
   }
 
@@ -136,6 +162,8 @@ class FuelTrackerCard extends HTMLElement {
     const recommendation = entity(this._hass, config.recommendation_entity);
     const trend = entity(this._hass, config.trend_entity);
     const average = entity(this._hass, config.average_price_entity);
+    const regionalAverage = entity(this._hass, config.regional_average_entity);
+    const capitalAverage = entity(this._hass, config.capital_average_entity);
 
     const name = config.name || station?.attributes?.fuel_type || price?.attributes?.fuel_type || "Fuel";
     const priceNumber = numberState(price);
@@ -151,7 +179,17 @@ class FuelTrackerCard extends HTMLElement {
       stationCount: String(price?.attributes?.station_count || station?.attributes?.station_count || "0"),
       priceNumber,
       priceDisplay: priceNumber === null ? "—" : `${priceNumber.toFixed(1)} c/L`,
-      averageDisplay: formatEntityPrice(average)
+      averageDisplay: formatEntityPrice(average),
+      regionalAverage,
+      capitalAverage,
+      regionalLabel: regionalAverage?.attributes?.regional_city
+        ? `${regionalAverage.attributes.regional_city} avg`
+        : "Regional avg",
+      capitalLabel: capitalAverage?.attributes?.capital_city
+        ? `${capitalAverage.attributes.capital_city} avg`
+        : "Capital avg",
+      regionalStationCount: formatStationCount(regionalAverage?.attributes?.station_count),
+      capitalStationCount: formatStationCount(capitalAverage?.attributes?.station_count)
     };
   }
 }
@@ -178,7 +216,9 @@ fuels:
     cheapest_station_entity: sensor.premium_unleaded_98_cheapest_station
     recommendation_entity: sensor.premium_unleaded_98_recommendation
     trend_entity: sensor.premium_unleaded_98_trend
-    average_price_entity: sensor.premium_unleaded_98_average_price</pre>
+    average_price_entity: sensor.premium_unleaded_98_average_price
+    regional_average_entity: sensor.premium_unleaded_98_regional_average_price
+    capital_average_entity: sensor.premium_unleaded_98_capital_average_price</pre>
       </div>
       <style>
         .editor {
@@ -214,6 +254,12 @@ function formatEntityPrice(stateObj) {
 function formatDistance(value) {
   const distance = Number(value);
   return Number.isFinite(distance) ? `${distance.toFixed(1)} km` : "—";
+}
+
+function formatStationCount(value) {
+  const count = Number(value);
+  if (!Number.isFinite(count)) return "";
+  return `${count} station${count === 1 ? "" : "s"}`;
 }
 
 function formatUpdated(value) {
@@ -401,6 +447,44 @@ const styles = `
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .comparison-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .comparison-metrics div {
+    min-width: 0;
+    border-radius: 8px;
+    border: 1px solid var(--divider-color);
+    padding: 9px 8px;
+  }
+
+  .comparison-metrics span,
+  .comparison-metrics small {
+    display: block;
+    color: var(--secondary-text-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .comparison-metrics span {
+    font-size: .72rem;
+  }
+
+  .comparison-metrics strong {
+    display: block;
+    margin-top: 2px;
+    font-size: .9rem;
+  }
+
+  .comparison-metrics small {
+    margin-top: 2px;
+    font-size: .7rem;
   }
 
   .station {

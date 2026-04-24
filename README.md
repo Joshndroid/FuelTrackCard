@@ -44,12 +44,16 @@ fuels:
     recommendation_entity: sensor.premium_unleaded_98_recommendation
     trend_entity: sensor.premium_unleaded_98_trend
     average_price_entity: sensor.premium_unleaded_98_average_price
+    regional_average_entity: sensor.premium_unleaded_98_regional_average_price
+    capital_average_entity: sensor.premium_unleaded_98_capital_average_price
   - name: Premium Diesel
     cheapest_price_entity: sensor.premium_diesel_cheapest_price
     cheapest_station_entity: sensor.premium_diesel_cheapest_station
     recommendation_entity: sensor.premium_diesel_recommendation
     trend_entity: sensor.premium_diesel_trend
     average_price_entity: sensor.premium_diesel_average_price
+    regional_average_entity: sensor.premium_diesel_regional_average_price
+    capital_average_entity: sensor.premium_diesel_capital_average_price
 ```
 
 ## Options
@@ -72,6 +76,8 @@ cheapest_station_entity: sensor.example_cheapest_station
 recommendation_entity: sensor.example_recommendation
 trend_entity: sensor.example_trend
 average_price_entity: sensor.example_average_price
+regional_average_entity: sensor.example_regional_average_price
+capital_average_entity: sensor.example_capital_average_price
 ```
 
 ## Development
