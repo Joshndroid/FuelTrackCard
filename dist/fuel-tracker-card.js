@@ -13,7 +13,9 @@ class FuelTrackerCard extends HTMLElement {
           trend_entity: "sensor.premium_unleaded_98_trend",
           average_price_entity: "sensor.premium_unleaded_98_average_price",
           regional_average_entity: "sensor.premium_unleaded_98_regional_average_price",
-          capital_average_entity: "sensor.premium_unleaded_98_capital_average_price"
+          regional_cheapest_entity: "sensor.premium_unleaded_98_regional_cheapest_price",
+          capital_average_entity: "sensor.premium_unleaded_98_capital_average_price",
+          capital_cheapest_entity: "sensor.premium_unleaded_98_capital_cheapest_price"
         }
       ]
     };
@@ -75,9 +77,7 @@ class FuelTrackerCard extends HTMLElement {
 
   _fuelPanel(fuel) {
     const attrs = fuel.station?.attributes || {};
-    const mapUrl = attrs.latitude && attrs.longitude
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${attrs.latitude},${attrs.longitude}`)}`
-      : null;
+    const mapUrl = navigationUrl(attrs);
 
     return `
       <section class="fuel-panel">
@@ -116,22 +116,22 @@ class FuelTrackerCard extends HTMLElement {
   }
 
   _comparisonMetrics(fuel) {
-    if (!fuel.regionalAverage && !fuel.capitalAverage) return "";
+    if (!fuel.regionalAverage && !fuel.regionalCheapest && !fuel.capitalAverage && !fuel.capitalCheapest) return "";
 
     return `
       <div class="comparison-metrics">
-        ${fuel.regionalAverage ? `
+        ${fuel.regionalAverage || fuel.regionalCheapest ? `
           <div>
             <span>${escapeHtml(fuel.regionalLabel)}</span>
-            <strong>${escapeHtml(formatEntityPrice(fuel.regionalAverage))}</strong>
-            <small>${escapeHtml(fuel.regionalStationCount)}</small>
+            <strong>${escapeHtml(formatEntityPrice(fuel.regionalCheapest || fuel.regionalAverage))}</strong>
+            <small>${escapeHtml(comparisonDetail(fuel.regionalAverage, fuel.regionalStationCount))}</small>
           </div>
         ` : ""}
-        ${fuel.capitalAverage ? `
+        ${fuel.capitalAverage || fuel.capitalCheapest ? `
           <div>
             <span>${escapeHtml(fuel.capitalLabel)}</span>
-            <strong>${escapeHtml(formatEntityPrice(fuel.capitalAverage))}</strong>
-            <small>${escapeHtml(fuel.capitalStationCount)}</small>
+            <strong>${escapeHtml(formatEntityPrice(fuel.capitalCheapest || fuel.capitalAverage))}</strong>
+            <small>${escapeHtml(comparisonDetail(fuel.capitalAverage, fuel.capitalStationCount))}</small>
           </div>
         ` : ""}
       </div>
@@ -143,17 +143,18 @@ class FuelTrackerCard extends HTMLElement {
     const brand = attrs.brand || "";
     const address = attrs.address || "";
     const updated = attrs.last_updated ? formatUpdated(attrs.last_updated) : "";
-
-    return `
-      <div class="station">
-        <div class="station-main">
-          <strong>${escapeHtml(stationName)}</strong>
-          <span>${escapeHtml([brand, address].filter(Boolean).join(" · "))}</span>
-          ${this._config.show_updated && updated ? `<em>${escapeHtml(updated)}</em>` : ""}
-        </div>
-        ${mapUrl ? `<a class="map-link" href="${mapUrl}" target="_blank" rel="noreferrer" title="Open map">›</a>` : ""}
+    const content = `
+      <div class="station-main">
+        <strong>${escapeHtml(stationName)}</strong>
+        <span>${escapeHtml([brand, address].filter(Boolean).join(" · "))}</span>
+        ${this._config.show_updated && updated ? `<em>${escapeHtml(updated)}</em>` : ""}
       </div>
+      ${mapUrl ? `<span class="map-link" title="Open in Waze">›</span>` : ""}
     `;
+
+    return mapUrl
+      ? `<a class="station station-link" href="${mapUrl}" target="_blank" rel="noreferrer">${content}</a>`
+      : `<div class="station">${content}</div>`;
   }
 
   _fuelView(config) {
@@ -163,7 +164,9 @@ class FuelTrackerCard extends HTMLElement {
     const trend = entity(this._hass, config.trend_entity);
     const average = entity(this._hass, config.average_price_entity);
     const regionalAverage = entity(this._hass, config.regional_average_entity);
+    const regionalCheapest = entity(this._hass, config.regional_cheapest_entity);
     const capitalAverage = entity(this._hass, config.capital_average_entity);
+    const capitalCheapest = entity(this._hass, config.capital_cheapest_entity);
 
     const name = config.name || station?.attributes?.fuel_type || price?.attributes?.fuel_type || "Fuel";
     const priceNumber = numberState(price);
@@ -181,15 +184,13 @@ class FuelTrackerCard extends HTMLElement {
       priceDisplay: priceNumber === null ? "—" : `${priceNumber.toFixed(1)} c/L`,
       averageDisplay: formatEntityPrice(average),
       regionalAverage,
+      regionalCheapest,
       capitalAverage,
-      regionalLabel: regionalAverage?.attributes?.regional_city
-        ? `${regionalAverage.attributes.regional_city} avg`
-        : "Regional avg",
-      capitalLabel: capitalAverage?.attributes?.capital_city
-        ? `${capitalAverage.attributes.capital_city} avg`
-        : "Capital avg",
-      regionalStationCount: formatStationCount(regionalAverage?.attributes?.station_count),
-      capitalStationCount: formatStationCount(capitalAverage?.attributes?.station_count)
+      capitalCheapest,
+      regionalLabel: comparisonLabel(regionalAverage || regionalCheapest, "regional_city", "Regional"),
+      capitalLabel: comparisonLabel(capitalAverage || capitalCheapest, "capital_city", "Capital"),
+      regionalStationCount: regionalAverage?.attributes?.station_count || regionalCheapest?.attributes?.station_count,
+      capitalStationCount: capitalAverage?.attributes?.station_count || capitalCheapest?.attributes?.station_count
     };
   }
 }
@@ -218,7 +219,9 @@ fuels:
     trend_entity: sensor.premium_unleaded_98_trend
     average_price_entity: sensor.premium_unleaded_98_average_price
     regional_average_entity: sensor.premium_unleaded_98_regional_average_price
-    capital_average_entity: sensor.premium_unleaded_98_capital_average_price</pre>
+    regional_cheapest_entity: sensor.premium_unleaded_98_regional_cheapest_price
+    capital_average_entity: sensor.premium_unleaded_98_capital_average_price
+    capital_cheapest_entity: sensor.premium_unleaded_98_capital_cheapest_price</pre>
       </div>
       <style>
         .editor {
@@ -260,6 +263,27 @@ function formatStationCount(value) {
   const count = Number(value);
   if (!Number.isFinite(count)) return "";
   return `${count} station${count === 1 ? "" : "s"}`;
+}
+
+function comparisonLabel(stateObj, cityAttribute, fallback) {
+  const city = stateObj?.attributes?.[cityAttribute];
+  return city ? `${city} cheapest` : `${fallback} cheapest`;
+}
+
+function comparisonDetail(averageState, stationCount) {
+  const parts = [];
+  const average = formatEntityPrice(averageState);
+  if (average !== "—") parts.push(`Avg ${average}`);
+  const count = formatStationCount(stationCount);
+  if (count) parts.push(count);
+  return parts.join(" · ");
+}
+
+function navigationUrl(attrs) {
+  const latitude = Number(attrs.latitude);
+  const longitude = Number(attrs.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return `https://waze.com/ul?ll=${encodeURIComponent(`${latitude},${longitude}`)}&navigate=yes`;
 }
 
 function formatUpdated(value) {
@@ -480,6 +504,7 @@ const styles = `
     display: block;
     margin-top: 2px;
     font-size: .9rem;
+    color: var(--primary-text-color);
   }
 
   .comparison-metrics small {
@@ -495,6 +520,11 @@ const styles = `
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid var(--divider-color);
+  }
+
+  .station-link {
+    color: inherit;
+    text-decoration: none;
   }
 
   .station-main {
