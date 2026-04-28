@@ -361,9 +361,12 @@ function escapeHtml(value) {
 }
 
 const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
+
   .fuel-card {
     padding: 16px;
     color: var(--primary-text-color);
+    font-family: 'JetBrains Mono', monospace;
   }
 
   .header {
