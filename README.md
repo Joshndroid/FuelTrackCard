@@ -92,6 +92,29 @@ price and shows the average as supporting detail.
 
 Station rows open Waze using the station coordinates.
 
+## Compact Kiosk Card
+
+This repo also includes a compact glanceable card for dashboards where the full card is too large. It compares the current cheapest price for each configured fuel type, highlights the cheapest one, and overlays the cheapest-price history for the last 7 days.
+
+```yaml
+type: custom:fuel-glance-card
+title: Fuel
+hours_to_show: 168
+show_station: true
+fuels:
+  - name: Unleaded 91
+    cheapest_price_entity: sensor.unleaded_91_cheapest_price
+    cheapest_station_entity: sensor.unleaded_91_cheapest_station
+  - name: Unleaded 95
+    cheapest_price_entity: sensor.unleaded_95_cheapest_price
+    cheapest_station_entity: sensor.unleaded_95_cheapest_station
+  - name: Diesel
+    cheapest_price_entity: sensor.diesel_cheapest_price
+    cheapest_station_entity: sensor.diesel_cheapest_station
+```
+
+Optional per-fuel colors can be supplied with `color: "#14b8a6"`. The graph uses Home Assistant history for each `cheapest_price_entity`, so recorder history must be available for the 7 day overlay.
+
 ## Development
 
 The installable card is:

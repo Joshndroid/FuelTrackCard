@@ -249,6 +249,213 @@ fuels:
   }
 }
 
+class FuelGlanceCard extends HTMLElement {
+  static getStubConfig() {
+    return {
+      type: "custom:fuel-glance-card",
+      title: "Fuel",
+      fuels: [
+        {
+          name: "Unleaded 91",
+          cheapest_price_entity: "sensor.unleaded_91_cheapest_price",
+          cheapest_station_entity: "sensor.unleaded_91_cheapest_station"
+        },
+        {
+          name: "Unleaded 95",
+          cheapest_price_entity: "sensor.unleaded_95_cheapest_price",
+          cheapest_station_entity: "sensor.unleaded_95_cheapest_station"
+        },
+        {
+          name: "Diesel",
+          cheapest_price_entity: "sensor.diesel_cheapest_price",
+          cheapest_station_entity: "sensor.diesel_cheapest_station"
+        }
+      ]
+    };
+  }
+
+  static getConfigElement() {
+    return document.createElement("fuel-glance-card-editor");
+  }
+
+  setConfig(config) {
+    if (!config.fuels || !Array.isArray(config.fuels) || config.fuels.length === 0) {
+      throw new Error("Define at least one fuel entry.");
+    }
+
+    this._config = {
+      title: "Fuel",
+      hours_to_show: 168,
+      show_station: true,
+      ...config
+    };
+    this._history = new Map();
+    this._historyKey = "";
+    this._historyLoading = false;
+    this._render();
+    this._fetchHistory();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    this._fetchHistory();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _render() {
+    if (!this._config || !this._hass) return;
+
+    const fuels = this._config.fuels.map((fuel, index) => this._fuelView(fuel, index));
+    const cheapest = fuels
+      .filter((fuel) => fuel.priceNumber !== null)
+      .sort((a, b) => a.priceNumber - b.priceNumber)[0];
+
+    this.innerHTML = `
+      <ha-card>
+        <div class="glance-card">
+          <div class="glance-head">
+            <div>
+              <h2>${escapeHtml(this._config.title)}</h2>
+              <span>${escapeHtml(cheapest ? `Cheapest ${cheapest.name}` : "No price data")}</span>
+            </div>
+            <div class="glance-price">
+              <strong>${escapeHtml(cheapest?.priceDisplay || "—")}</strong>
+              ${this._config.show_station ? `<small>${escapeHtml(cheapest?.stationName || "No station")}</small>` : ""}
+            </div>
+          </div>
+          <div class="glance-graph" aria-label="7 day fuel price history">
+            ${historyGraph(fuels)}
+          </div>
+          <div class="glance-list">
+            ${fuels.map((fuel) => this._fuelRow(fuel, cheapest)).join("")}
+          </div>
+        </div>
+      </ha-card>
+      <style>${glanceStyles}</style>
+    `;
+  }
+
+  _fuelView(config, index) {
+    const price = entity(this._hass, config.cheapest_price_entity);
+    const station = entity(this._hass, config.cheapest_station_entity);
+    const priceNumber = numberState(price);
+    const name = config.name || price?.attributes?.fuel_type || station?.attributes?.fuel_type || "Fuel";
+    const history = this._history.get(config.cheapest_price_entity) || [];
+
+    return {
+      name,
+      color: config.color || graphColors[index % graphColors.length],
+      priceNumber,
+      priceDisplay: priceNumber === null ? "—" : `${priceNumber.toFixed(1)}`,
+      stationName: station?.state || price?.attributes?.station || "No station",
+      history
+    };
+  }
+
+  _fuelRow(fuel, cheapest) {
+    const isCheapest = cheapest && fuel.name === cheapest.name && fuel.priceNumber === cheapest.priceNumber;
+    return `
+      <div class="glance-row ${isCheapest ? "is-cheapest" : ""}">
+        <span class="glance-swatch" style="background:${escapeHtml(fuel.color)}"></span>
+        <span class="glance-name">${escapeHtml(fuel.name)}</span>
+        <strong>${escapeHtml(fuel.priceDisplay)}<small> c/L</small></strong>
+      </div>
+    `;
+  }
+
+  async _fetchHistory() {
+    if (!this._config || !this._hass?.callWS || this._historyLoading) return;
+
+    const entityIds = this._config.fuels
+      .map((fuel) => fuel.cheapest_price_entity)
+      .filter(Boolean);
+    if (!entityIds.length) return;
+
+    const hours = Number(this._config.hours_to_show) || 168;
+    const end = new Date();
+    const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
+    const key = `${entityIds.join("|")}:${Math.floor(end.getTime() / 300000)}:${hours}`;
+    if (key === this._historyKey) return;
+
+    this._historyLoading = true;
+    try {
+      const response = await this._hass.callWS({
+        type: "history/history_during_period",
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        entity_ids: entityIds,
+        minimal_response: true,
+        no_attributes: true,
+        significant_changes_only: false
+      });
+
+      const nextHistory = new Map();
+      entityIds.forEach((entityId, index) => {
+        const rows = Array.isArray(response?.[index]) ? response[index] : [];
+        nextHistory.set(entityId, rows.map(historyPoint).filter(Boolean));
+      });
+
+      this._history = nextHistory;
+      this._historyKey = key;
+      this._render();
+    } catch (error) {
+      console.warn("Fuel glance card could not load history", error);
+    } finally {
+      this._historyLoading = false;
+    }
+  }
+}
+
+class FuelGlanceCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _render() {
+    this.innerHTML = `
+      <div class="editor">
+        <p>Configure this compact card in YAML. Add the three fuel types you want on the kiosk view.</p>
+        <pre>type: custom:fuel-glance-card
+title: Fuel
+hours_to_show: 168
+show_station: true
+fuels:
+  - name: Unleaded 91
+    cheapest_price_entity: sensor.unleaded_91_cheapest_price
+    cheapest_station_entity: sensor.unleaded_91_cheapest_station
+  - name: Unleaded 95
+    cheapest_price_entity: sensor.unleaded_95_cheapest_price
+    cheapest_station_entity: sensor.unleaded_95_cheapest_station
+  - name: Diesel
+    cheapest_price_entity: sensor.diesel_cheapest_price
+    cheapest_station_entity: sensor.diesel_cheapest_station</pre>
+      </div>
+      <style>
+        .editor {
+          padding: 16px;
+          color: var(--primary-text-color);
+        }
+        pre {
+          overflow: auto;
+          padding: 12px;
+          border-radius: 8px;
+          background: var(--code-editor-background-color, rgba(0,0,0,.06));
+        }
+      </style>
+    `;
+  }
+}
+
 function entity(hass, entityId) {
   return entityId ? hass.states[entityId] : undefined;
 }
@@ -359,6 +566,59 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+function historyPoint(row) {
+  const value = Number(row?.s);
+  const timestamp = row?.lu || row?.last_changed || row?.last_updated;
+  const time = typeof timestamp === "number" ? timestamp * 1000 : new Date(timestamp).getTime();
+  if (!Number.isFinite(value) || !Number.isFinite(time)) return null;
+  return { time, value };
+}
+
+function historyGraph(fuels) {
+  const series = fuels.map((fuel) => ({
+    ...fuel,
+    points: fuel.history.length
+      ? fuel.history
+      : fuel.priceNumber === null
+        ? []
+        : [{ time: Date.now(), value: fuel.priceNumber }]
+  }));
+  const allPoints = series.flatMap((fuel) => fuel.points);
+  if (!allPoints.length) {
+    return `<div class="glance-empty">No history yet</div>`;
+  }
+
+  const minTime = Math.min(...allPoints.map((point) => point.time));
+  const maxTime = Math.max(...allPoints.map((point) => point.time));
+  const minValue = Math.min(...allPoints.map((point) => point.value));
+  const maxValue = Math.max(...allPoints.map((point) => point.value));
+  const width = 280;
+  const height = 72;
+  const pad = 7;
+  const valueSpan = Math.max(maxValue - minValue, 1);
+  const timeSpan = Math.max(maxTime - minTime, 1);
+  const lines = series
+    .filter((fuel) => fuel.points.length)
+    .map((fuel) => {
+      const points = fuel.points.map((point) => {
+        const x = pad + ((point.time - minTime) / timeSpan) * (width - pad * 2);
+        const y = height - pad - ((point.value - minValue) / valueSpan) * (height - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(" ");
+      return `<polyline points="${points}" fill="none" stroke="${escapeHtml(fuel.color)}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />`;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img">
+      <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" />
+      ${lines}
+    </svg>
+  `;
+}
+
+const graphColors = ["#14b8a6", "#f97316", "#3b82f6", "#a855f7", "#ef4444"];
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
@@ -611,14 +871,189 @@ const styles = `
   }
 `;
 
+const glanceStyles = `
+  .glance-card {
+    padding: 12px;
+    color: var(--primary-text-color);
+    font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
+  }
+
+  .glance-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .glance-head h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  .glance-head span,
+  .glance-price small {
+    display: block;
+    color: var(--secondary-text-color);
+    font-size: .72rem;
+    line-height: 1.25;
+  }
+
+  .glance-price {
+    min-width: 76px;
+    text-align: right;
+  }
+
+  .glance-price strong {
+    display: block;
+    color: var(--primary-color);
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .glance-price strong::after {
+    content: " c/L";
+    font-size: .7rem;
+    font-weight: 700;
+    color: var(--secondary-text-color);
+  }
+
+  .glance-price small {
+    max-width: 118px;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .glance-graph {
+    height: 78px;
+    margin-top: 8px;
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+    background: rgba(127, 127, 127, .07);
+    overflow: hidden;
+  }
+
+  .glance-graph svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .glance-graph line {
+    stroke: var(--divider-color);
+    stroke-width: 1;
+  }
+
+  .glance-empty {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    color: var(--secondary-text-color);
+    font-size: .78rem;
+  }
+
+  .glance-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .glance-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 6px;
+    padding: 7px 6px;
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+    background: var(--card-background-color);
+  }
+
+  .glance-row.is-cheapest {
+    border-color: var(--primary-color);
+    background: rgba(var(--rgb-primary-color, 33, 150, 243), .08);
+  }
+
+  .glance-swatch {
+    grid-row: 1 / 3;
+    width: 8px;
+    height: 28px;
+    border-radius: 8px;
+  }
+
+  .glance-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--secondary-text-color);
+    font-size: .68rem;
+    line-height: 1.15;
+  }
+
+  .glance-row strong {
+    margin-top: 1px;
+    font-size: .96rem;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .glance-row small {
+    color: var(--secondary-text-color);
+    font-size: .62rem;
+    font-weight: 700;
+  }
+
+  @media (max-width: 420px) {
+    .glance-card {
+      padding: 10px;
+    }
+
+    .glance-list {
+      grid-template-columns: 1fr;
+    }
+
+    .glance-row {
+      grid-template-columns: 8px minmax(0, 1fr) auto;
+      grid-template-rows: auto;
+    }
+
+    .glance-swatch {
+      grid-row: auto;
+      height: 18px;
+    }
+
+    .glance-row strong {
+      margin-top: 0;
+      text-align: right;
+    }
+  }
+`;
+
 customElements.define("fuel-tracker-card", FuelTrackerCard);
 customElements.define("fuel-tracker-card-editor", FuelTrackerCardEditor);
+customElements.define("fuel-glance-card", FuelGlanceCard);
+customElements.define("fuel-glance-card-editor", FuelGlanceCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "fuel-tracker-card",
   name: "Fuel Tracker Card",
   description: "A Lovelace card for fuel price tracker entities."
+});
+window.customCards.push({
+  type: "fuel-glance-card",
+  name: "Fuel Glance Card",
+  description: "A compact kiosk card comparing fuel prices with a 7 day history graph."
 });
 
 console.info(`%c FUEL-TRACKER-CARD %c ${CARD_VERSION} `, "color: white; background: #2563eb; font-weight: 700;", "color: white; background: #111827;");
