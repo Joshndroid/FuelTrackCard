@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.1.1";
+const CARD_VERSION = "0.1.2";
 
 class FuelTrackerCard extends HTMLElement {
   static getStubConfig() {
@@ -463,6 +463,225 @@ fuels:
   }
 }
 
+class FuelWatchCard extends HTMLElement {
+  static getStubConfig() {
+    return {
+      type: "custom:fuel-watch-card",
+      title: "Fuel Watch",
+      fuels: [
+        {
+          name: "Unleaded 91",
+          cheapest_price_entity: "sensor.unleaded_91_cheapest_price",
+          cheapest_station_entity: "sensor.unleaded_91_cheapest_station",
+          regional_cheapest_entity: "sensor.unleaded_91_regional_cheapest_price"
+        },
+        {
+          name: "Diesel",
+          cheapest_price_entity: "sensor.diesel_cheapest_price",
+          cheapest_station_entity: "sensor.diesel_cheapest_station",
+          regional_cheapest_entity: "sensor.diesel_regional_cheapest_price"
+        }
+      ]
+    };
+  }
+
+  static getConfigElement() {
+    return document.createElement("fuel-watch-card-editor");
+  }
+
+  setConfig(config) {
+    if (!config.fuels || !Array.isArray(config.fuels) || config.fuels.length === 0) {
+      throw new Error("Define at least one fuel entry.");
+    }
+
+    this._config = {
+      title: "Fuel Watch",
+      hours_to_show: 168,
+      ...config
+    };
+    this._history = new Map();
+    this._historyKey = "";
+    this._historyLoading = false;
+    this._render();
+    this._fetchHistory();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    this._fetchHistory();
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  _render() {
+    if (!this._config || !this._hass) return;
+
+    const fuels = this._config.fuels.map((fuel, index) => this._fuelView(fuel, index));
+    const missingCount = fuels.filter((fuel) => !fuel.priceEntity).length;
+
+    this.innerHTML = `
+      <ha-card>
+        <div class="watch-card">
+          <div class="watch-title">${escapeHtml(this._config.title)}</div>
+          <div class="watch-current">
+            ${fuels.map((fuel) => this._currentPanel(fuel)).join("")}
+          </div>
+          <div class="watch-graph" aria-label="7 day fuel price history">
+            ${historyGraph(fuels)}
+          </div>
+          ${missingCount ? `<div class="watch-warning">${missingCount} price ${missingCount === 1 ? "entity is" : "entities are"} not available.</div>` : ""}
+          <div class="watch-regional">
+            ${fuels.map((fuel) => this._regionalPanel(fuel)).join("")}
+          </div>
+        </div>
+      </ha-card>
+      <style>${watchStyles}</style>
+    `;
+  }
+
+  _fuelView(config, index) {
+    const priceEntityId = fuelPriceEntityId(config);
+    const stationEntityId = fuelStationEntityId(config);
+    const regionalEntityId = fuelRegionalEntityId(config);
+    const price = entity(this._hass, priceEntityId);
+    const station = entity(this._hass, stationEntityId);
+    const regional = entity(this._hass, regionalEntityId);
+    const priceNumber = numberState(price);
+    const regionalNumber = numberState(regional);
+    const name = config.name || price?.attributes?.fuel_type || station?.attributes?.fuel_type || "Fuel";
+    const history = this._history.get(priceEntityId) || [];
+
+    return {
+      name,
+      color: config.color || graphColors[index % graphColors.length],
+      priceEntity: price,
+      priceEntityId,
+      priceNumber,
+      priceDisplay: priceNumber === null ? "—" : `${priceNumber.toFixed(1)}`,
+      stationName: station?.state || price?.attributes?.station_name || price?.attributes?.station || "No station",
+      location: stationLocation(station?.attributes || price?.attributes || {}),
+      regional,
+      regionalDisplay: regionalNumber === null ? "—" : `${regionalNumber.toFixed(1)}`,
+      regionalLocation: stationLocation(regional?.attributes || {}),
+      history
+    };
+  }
+
+  _currentPanel(fuel) {
+    const title = fuel.priceEntity ? fuel.name : `${fuel.name}: ${fuel.priceEntityId || "missing entity id"} not found`;
+    return `
+      <section class="watch-panel ${fuel.priceEntity ? "" : "is-missing"}" title="${escapeHtml(title)}">
+        <div class="watch-panel-head">
+          <span class="watch-swatch" style="background:${escapeHtml(fuel.color)}"></span>
+          <span>${escapeHtml(fuel.name)}</span>
+        </div>
+        <strong>${escapeHtml(fuel.priceDisplay)}<small> c/L</small></strong>
+        <div class="watch-place">${escapeHtml(fuel.stationName)}</div>
+        <div class="watch-location">${escapeHtml(fuel.location)}</div>
+      </section>
+    `;
+  }
+
+  _regionalPanel(fuel) {
+    return `
+      <section class="watch-region">
+        <span>${escapeHtml(fuel.name)} regional</span>
+        <strong>${escapeHtml(fuel.regionalDisplay)}<small> c/L</small></strong>
+        <em>${escapeHtml(fuel.regionalLocation)}</em>
+      </section>
+    `;
+  }
+
+  async _fetchHistory() {
+    if (!this._config || !this._hass?.callWS || this._historyLoading) return;
+
+    const entityIds = this._config.fuels
+      .map(fuelPriceEntityId)
+      .filter(Boolean);
+    if (!entityIds.length) return;
+
+    const hours = Number(this._config.hours_to_show) || 168;
+    const end = new Date();
+    const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
+    const key = `${entityIds.join("|")}:${Math.floor(end.getTime() / 300000)}:${hours}`;
+    if (key === this._historyKey) return;
+
+    this._historyLoading = true;
+    try {
+      const response = await this._hass.callWS({
+        type: "history/history_during_period",
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        entity_ids: entityIds,
+        minimal_response: true,
+        no_attributes: true,
+        significant_changes_only: false
+      });
+
+      const nextHistory = new Map();
+      entityIds.forEach((entityId, index) => {
+        const rows = historyRows(response, entityId, index);
+        nextHistory.set(entityId, rows.map(historyPoint).filter(Boolean));
+      });
+
+      this._history = nextHistory;
+      this._historyKey = key;
+      this._render();
+    } catch (error) {
+      console.warn("Fuel watch card could not load history", error);
+    } finally {
+      this._historyLoading = false;
+    }
+  }
+}
+
+class FuelWatchCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config || {};
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _render() {
+    this.innerHTML = `
+      <div class="editor">
+        <p>Configure this watch card in YAML. Add unrelated fuels you want to monitor side by side.</p>
+        <pre>type: custom:fuel-watch-card
+title: Fuel Watch
+hours_to_show: 168
+fuels:
+  - name: Unleaded 91
+    cheapest_price_entity: sensor.unleaded_91_cheapest_price
+    cheapest_station_entity: sensor.unleaded_91_cheapest_station
+    regional_cheapest_entity: sensor.unleaded_91_regional_cheapest_price
+  - name: Diesel
+    cheapest_price_entity: sensor.diesel_cheapest_price
+    cheapest_station_entity: sensor.diesel_cheapest_station
+    regional_cheapest_entity: sensor.diesel_regional_cheapest_price</pre>
+      </div>
+      <style>
+        .editor {
+          padding: 16px;
+          color: var(--primary-text-color);
+        }
+        pre {
+          overflow: auto;
+          padding: 12px;
+          border-radius: 8px;
+          background: var(--code-editor-background-color, rgba(0,0,0,.06));
+        }
+      </style>
+    `;
+  }
+}
+
 function entity(hass, entityId) {
   return entityId ? hass.states[entityId] : undefined;
 }
@@ -480,6 +699,13 @@ function fuelStationEntityId(config) {
   return cleanEntityId(
     config.cheapest_station_entity ||
     config.station_entity
+  );
+}
+
+function fuelRegionalEntityId(config) {
+  return cleanEntityId(
+    config.regional_cheapest_entity ||
+    config.regional_entity
   );
 }
 
@@ -507,6 +733,11 @@ function formatStationCount(value) {
   const count = Number(value);
   if (!Number.isFinite(count)) return "";
   return `${count} station${count === 1 ? "" : "s"}`;
+}
+
+function stationLocation(attrs) {
+  const brandAddress = [attrs.brand, attrs.address].filter(Boolean).join(" · ");
+  return brandAddress || attrs.address || attrs.regional_city || attrs.capital_city || "No location";
 }
 
 function comparisonView(cheapestState, averageState, cityAttribute, fallback) {
@@ -1089,10 +1320,187 @@ const glanceStyles = `
   }
 `;
 
+const watchStyles = `
+  .watch-card {
+    padding: 12px;
+    color: var(--primary-text-color);
+    font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
+  }
+
+  .watch-title {
+    margin-bottom: 8px;
+    font-size: .9rem;
+    font-weight: 800;
+    line-height: 1.15;
+  }
+
+  .watch-current {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .watch-panel,
+  .watch-region {
+    min-width: 0;
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+    background: var(--card-background-color);
+  }
+
+  .watch-panel {
+    padding: 8px;
+  }
+
+  .watch-panel.is-missing {
+    opacity: .65;
+  }
+
+  .watch-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--secondary-text-color);
+    font-size: .72rem;
+    font-weight: 700;
+    line-height: 1.15;
+  }
+
+  .watch-panel-head span:last-child,
+  .watch-place,
+  .watch-location,
+  .watch-region span,
+  .watch-region em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .watch-swatch {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 18px;
+    border-radius: 8px;
+  }
+
+  .watch-panel strong {
+    display: block;
+    margin-top: 5px;
+    color: var(--primary-color);
+    font-size: 1.42rem;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .watch-panel small,
+  .watch-region small {
+    color: var(--secondary-text-color);
+    font-size: .65rem;
+    font-weight: 700;
+  }
+
+  .watch-place {
+    margin-top: 5px;
+    font-size: .78rem;
+    font-weight: 700;
+  }
+
+  .watch-location {
+    margin-top: 2px;
+    color: var(--secondary-text-color);
+    font-size: .68rem;
+  }
+
+  .watch-graph {
+    height: 78px;
+    margin-top: 8px;
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+    background: rgba(127, 127, 127, .07);
+    overflow: hidden;
+  }
+
+  .watch-graph svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .watch-graph line {
+    stroke: var(--divider-color);
+    stroke-width: 1;
+  }
+
+  .watch-warning {
+    margin-top: 6px;
+    padding: 5px 7px;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, .14);
+    color: #b45309;
+    font-size: .72rem;
+    font-weight: 700;
+  }
+
+  .watch-regional {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .watch-region {
+    padding: 7px 8px;
+  }
+
+  .watch-region span,
+  .watch-region em {
+    display: block;
+    color: var(--secondary-text-color);
+    font-size: .68rem;
+    font-style: normal;
+    line-height: 1.2;
+  }
+
+  .watch-region strong {
+    display: block;
+    margin-top: 2px;
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .watch-region em {
+    margin-top: 3px;
+  }
+
+  .watch-empty,
+  .watch-graph .glance-empty {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    color: var(--secondary-text-color);
+    font-size: .78rem;
+  }
+
+  @media (max-width: 420px) {
+    .watch-card {
+      padding: 10px;
+    }
+
+    .watch-current,
+    .watch-regional {
+      grid-template-columns: 1fr;
+    }
+  }
+`;
+
 customElements.define("fuel-tracker-card", FuelTrackerCard);
 customElements.define("fuel-tracker-card-editor", FuelTrackerCardEditor);
 customElements.define("fuel-glance-card", FuelGlanceCard);
 customElements.define("fuel-glance-card-editor", FuelGlanceCardEditor);
+customElements.define("fuel-watch-card", FuelWatchCard);
+customElements.define("fuel-watch-card-editor", FuelWatchCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
@@ -1104,6 +1512,11 @@ window.customCards.push({
   type: "fuel-glance-card",
   name: "Fuel Glance Card",
   description: "A compact kiosk card comparing fuel prices with a 7 day history graph."
+});
+window.customCards.push({
+  type: "fuel-watch-card",
+  name: "Fuel Watch Card",
+  description: "A compact card for watching unrelated fuels with current locations, history, and regional cheapest prices."
 });
 
 console.info(`%c FUEL-TRACKER-CARD %c ${CARD_VERSION} `, "color: white; background: #2563eb; font-weight: 700;", "color: white; background: #111827;");

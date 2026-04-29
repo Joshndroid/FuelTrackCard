@@ -117,6 +117,27 @@ Optional per-fuel colors can be supplied with `color: "#14b8a6"`. The graph uses
 
 For compatibility, each fuel can also use `price_entity`, `cheapest_entity`, or `entity` instead of `cheapest_price_entity`, and `station_entity` instead of `cheapest_station_entity`.
 
+## Fuel Watch Card
+
+Use this card when the fuels are not interchangeable, such as watching one unleaded tank and one diesel tank. It shows each fuel's current cheapest price and location at the top, overlays the last 7 days of cheapest-price history, and shows regional cheapest prices along the bottom.
+
+```yaml
+type: custom:fuel-watch-card
+title: Fuel Watch
+hours_to_show: 168
+fuels:
+  - name: Unleaded 91
+    cheapest_price_entity: sensor.unleaded_91_cheapest_price
+    cheapest_station_entity: sensor.unleaded_91_cheapest_station
+    regional_cheapest_entity: sensor.unleaded_91_regional_cheapest_price
+  - name: Diesel
+    cheapest_price_entity: sensor.diesel_cheapest_price
+    cheapest_station_entity: sensor.diesel_cheapest_station
+    regional_cheapest_entity: sensor.diesel_regional_cheapest_price
+```
+
+Optional per-fuel colors can be supplied with `color: "#14b8a6"`. For compatibility, `regional_entity` can be used instead of `regional_cheapest_entity`.
+
 ## Development
 
 The installable card is:
