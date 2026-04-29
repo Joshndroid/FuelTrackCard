@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.1.0";
+const CARD_VERSION = "0.1.1";
 
 class FuelTrackerCard extends HTMLElement {
   static getStubConfig() {
@@ -310,6 +310,7 @@ class FuelGlanceCard extends HTMLElement {
     if (!this._config || !this._hass) return;
 
     const fuels = this._config.fuels.map((fuel, index) => this._fuelView(fuel, index));
+    const missingCount = fuels.filter((fuel) => !fuel.priceEntity).length;
     const cheapest = fuels
       .filter((fuel) => fuel.priceNumber !== null)
       .sort((a, b) => a.priceNumber - b.priceNumber)[0];
@@ -330,6 +331,7 @@ class FuelGlanceCard extends HTMLElement {
           <div class="glance-graph" aria-label="7 day fuel price history">
             ${historyGraph(fuels)}
           </div>
+          ${missingCount ? `<div class="glance-warning">${missingCount} price ${missingCount === 1 ? "entity is" : "entities are"} not available.</div>` : ""}
           <div class="glance-list">
             ${fuels.map((fuel) => this._fuelRow(fuel, cheapest)).join("")}
           </div>
@@ -340,26 +342,31 @@ class FuelGlanceCard extends HTMLElement {
   }
 
   _fuelView(config, index) {
-    const price = entity(this._hass, config.cheapest_price_entity);
-    const station = entity(this._hass, config.cheapest_station_entity);
+    const priceEntityId = fuelPriceEntityId(config);
+    const stationEntityId = fuelStationEntityId(config);
+    const price = entity(this._hass, priceEntityId);
+    const station = entity(this._hass, stationEntityId);
     const priceNumber = numberState(price);
     const name = config.name || price?.attributes?.fuel_type || station?.attributes?.fuel_type || "Fuel";
-    const history = this._history.get(config.cheapest_price_entity) || [];
+    const history = this._history.get(priceEntityId) || [];
 
     return {
       name,
       color: config.color || graphColors[index % graphColors.length],
+      priceEntity: price,
+      priceEntityId,
       priceNumber,
       priceDisplay: priceNumber === null ? "—" : `${priceNumber.toFixed(1)}`,
-      stationName: station?.state || price?.attributes?.station || "No station",
+      stationName: station?.state || price?.attributes?.station_name || price?.attributes?.station || "No station",
       history
     };
   }
 
   _fuelRow(fuel, cheapest) {
     const isCheapest = cheapest && fuel.name === cheapest.name && fuel.priceNumber === cheapest.priceNumber;
+    const title = fuel.priceEntity ? fuel.name : `${fuel.name}: ${fuel.priceEntityId || "missing entity id"} not found`;
     return `
-      <div class="glance-row ${isCheapest ? "is-cheapest" : ""}">
+      <div class="glance-row ${isCheapest ? "is-cheapest" : ""} ${fuel.priceEntity ? "" : "is-missing"}" title="${escapeHtml(title)}">
         <span class="glance-swatch" style="background:${escapeHtml(fuel.color)}"></span>
         <span class="glance-name">${escapeHtml(fuel.name)}</span>
         <strong>${escapeHtml(fuel.priceDisplay)}<small> c/L</small></strong>
@@ -371,7 +378,7 @@ class FuelGlanceCard extends HTMLElement {
     if (!this._config || !this._hass?.callWS || this._historyLoading) return;
 
     const entityIds = this._config.fuels
-      .map((fuel) => fuel.cheapest_price_entity)
+      .map(fuelPriceEntityId)
       .filter(Boolean);
     if (!entityIds.length) return;
 
@@ -395,7 +402,7 @@ class FuelGlanceCard extends HTMLElement {
 
       const nextHistory = new Map();
       entityIds.forEach((entityId, index) => {
-        const rows = Array.isArray(response?.[index]) ? response[index] : [];
+        const rows = historyRows(response, entityId, index);
         nextHistory.set(entityId, rows.map(historyPoint).filter(Boolean));
       });
 
@@ -460,9 +467,29 @@ function entity(hass, entityId) {
   return entityId ? hass.states[entityId] : undefined;
 }
 
+function fuelPriceEntityId(config) {
+  return cleanEntityId(
+    config.cheapest_price_entity ||
+    config.price_entity ||
+    config.cheapest_entity ||
+    config.entity
+  );
+}
+
+function fuelStationEntityId(config) {
+  return cleanEntityId(
+    config.cheapest_station_entity ||
+    config.station_entity
+  );
+}
+
+function cleanEntityId(entityId) {
+  return typeof entityId === "string" ? entityId.trim() : "";
+}
+
 function numberState(stateObj) {
   if (!stateObj || stateObj.state === "unknown" || stateObj.state === "unavailable") return null;
-  const value = Number(stateObj.state);
+  const value = Number.parseFloat(stateObj.state);
   return Number.isFinite(value) ? value : null;
 }
 
@@ -568,11 +595,20 @@ function escapeHtml(value) {
 }
 
 function historyPoint(row) {
-  const value = Number(row?.s);
-  const timestamp = row?.lu || row?.last_changed || row?.last_updated;
+  const value = Number.parseFloat(row?.s ?? row?.state);
+  const timestamp = row?.lu ?? row?.last_changed ?? row?.last_updated;
   const time = typeof timestamp === "number" ? timestamp * 1000 : new Date(timestamp).getTime();
   if (!Number.isFinite(value) || !Number.isFinite(time)) return null;
   return { time, value };
+}
+
+function historyRows(response, entityId, index) {
+  if (Array.isArray(response?.[index])) return response[index];
+  if (Array.isArray(response?.[entityId])) return response[entityId];
+  if (Array.isArray(response) && response[index]?.entity_id === entityId && Array.isArray(response[index]?.states)) {
+    return response[index].states;
+  }
+  return [];
 }
 
 function historyGraph(fuels) {
@@ -939,6 +975,16 @@ const glanceStyles = `
     overflow: hidden;
   }
 
+  .glance-warning {
+    margin-top: 6px;
+    padding: 5px 7px;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, .14);
+    color: #b45309;
+    font-size: .72rem;
+    font-weight: 700;
+  }
+
   .glance-graph svg {
     width: 100%;
     height: 100%;
@@ -981,6 +1027,10 @@ const glanceStyles = `
   .glance-row.is-cheapest {
     border-color: var(--primary-color);
     background: rgba(var(--rgb-primary-color, 33, 150, 243), .08);
+  }
+
+  .glance-row.is-missing {
+    opacity: .65;
   }
 
   .glance-swatch {

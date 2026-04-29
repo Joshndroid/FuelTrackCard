@@ -115,6 +115,8 @@ fuels:
 
 Optional per-fuel colors can be supplied with `color: "#14b8a6"`. The graph uses Home Assistant history for each `cheapest_price_entity`, so recorder history must be available for the 7 day overlay.
 
+For compatibility, each fuel can also use `price_entity`, `cheapest_entity`, or `entity` instead of `cheapest_price_entity`, and `station_entity` instead of `cheapest_station_entity`.
+
 ## Development
 
 The installable card is:
