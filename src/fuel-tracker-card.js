@@ -531,7 +531,7 @@ class FuelWatchCard extends HTMLElement {
             ${historyGraph(fuels)}
           </div>
           ${missingCount ? `<div class="watch-warning">${missingCount} price ${missingCount === 1 ? "entity is" : "entities are"} not available.</div>` : ""}
-          ${this._config.show_regional ? `
+          ${this._config?.show_regional !== false ? `
             <div class="watch-regional">
               ${fuels.map((fuel) => this._regionalPanel(fuel)).join("")}
             </div>
