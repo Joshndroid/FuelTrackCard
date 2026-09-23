@@ -562,7 +562,6 @@ class FuelWatchCard extends HTMLElement {
       priceNumber,
       priceDisplay: priceNumber === null ? "—" : `${priceNumber.toFixed(1)}`,
       stationName: station?.state || price?.attributes?.station_name || price?.attributes?.station || "No station",
-      location: stationLocation(station?.attributes || price?.attributes || {}),
       regional,
       regionalDisplay: regionalNumber === null ? "—" : `${regionalNumber.toFixed(1)}`,
       regionalLocation: regionalStationLocation(regional?.attributes || {}),
@@ -580,7 +579,6 @@ class FuelWatchCard extends HTMLElement {
         </div>
         <strong>${escapeHtml(fuel.priceDisplay)}<small> c/L</small></strong>
         <div class="watch-place">${escapeHtml(fuel.stationName)}</div>
-        <div class="watch-location">${escapeHtml(fuel.location)}</div>
       </section>
     `;
   }
@@ -653,7 +651,7 @@ class FuelWatchCardEditor extends HTMLElement {
     this.innerHTML = `
       <div class="editor">
         <label class="editor-option">
-          <input id="show-regional" type="checkbox" ${this._config.show_regional !== false ? "checked" : ""}>
+          <input id="show-regional" type="checkbox" ${this._config?.show_regional !== false ? "checked" : ""}>
           <span>Show regional section</span>
         </label>
         <p>Configure the remaining watch card options in YAML. Add unrelated fuels you want to monitor side by side.</p>
@@ -760,11 +758,6 @@ function formatStationCount(value) {
   const count = Number(value);
   if (!Number.isFinite(count)) return "";
   return `${count} station${count === 1 ? "" : "s"}`;
-}
-
-function stationLocation(attrs) {
-  const brandAddress = [attrs.brand, attrs.address].filter(Boolean).join(" · ");
-  return brandAddress || attrs.address || attrs.regional_city || attrs.capital_city || "No location";
 }
 
 function regionalStationLocation(attrs) {
@@ -1409,7 +1402,6 @@ const watchStyles = `
 
   .watch-panel-head span:last-child,
   .watch-place,
-  .watch-location,
   .watch-region span,
   .watch-region em {
     min-width: 0;
@@ -1446,12 +1438,6 @@ const watchStyles = `
     margin-top: 5px;
     font-size: .78rem;
     font-weight: 700;
-  }
-
-  .watch-location {
-    margin-top: 2px;
-    color: var(--secondary-text-color);
-    font-size: .68rem;
   }
 
   .watch-graph {
