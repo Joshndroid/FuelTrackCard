@@ -562,7 +562,7 @@ class FuelWatchCard extends HTMLElement {
       location: stationLocation(station?.attributes || price?.attributes || {}),
       regional,
       regionalDisplay: regionalNumber === null ? "—" : `${regionalNumber.toFixed(1)}`,
-      regionalLocation: stationLocation(regional?.attributes || {}),
+      regionalLocation: regionalStationLocation(regional?.attributes || {}),
       history
     };
   }
@@ -735,6 +735,20 @@ function formatStationCount(value) {
 function stationLocation(attrs) {
   const brandAddress = [attrs.brand, attrs.address].filter(Boolean).join(" · ");
   return brandAddress || attrs.address || attrs.regional_city || attrs.capital_city || "No location";
+}
+
+function regionalStationLocation(attrs) {
+  const brand = attrs.brand || attrs.station_brand || "";
+  const suburb =
+    attrs.suburb ||
+    attrs.station_suburb ||
+    attrs.locality ||
+    attrs.city ||
+    attrs.town ||
+    attrs.regional_city ||
+    attrs.capital_city ||
+    "";
+  return [brand, suburb].filter(Boolean).join(" · ") || "No location";
 }
 
 function comparisonView(cheapestState, averageState, cityAttribute, fallback) {
