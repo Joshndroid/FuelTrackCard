@@ -125,6 +125,7 @@ Use this card when the fuels are not interchangeable, such as watching one unlea
 type: custom:fuel-watch-card
 title: Fuel Watch
 hours_to_show: 168
+show_regional: true
 fuels:
   - name: Unleaded 91
     cheapest_price_entity: sensor.unleaded_91_cheapest_price
@@ -136,7 +137,7 @@ fuels:
     regional_cheapest_entity: sensor.diesel_regional_cheapest_price
 ```
 
-Optional per-fuel colors can be supplied with `color: "#14b8a6"`. For compatibility, `regional_entity` can be used instead of `regional_cheapest_entity`.
+Set `show_regional: false` or clear **Show regional section** in the visual editor to hide the bottom regional area. Optional per-fuel colors can be supplied with `color: "#14b8a6"`. For compatibility, `regional_entity` can be used instead of `regional_cheapest_entity`.
 
 ## Development
 
