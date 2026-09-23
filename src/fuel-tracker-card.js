@@ -140,13 +140,10 @@ class FuelTrackerCard extends HTMLElement {
 
   _stationBlock(fuel, attrs, mapUrl) {
     const stationName = fuel.station?.state || "No station";
-    const brand = attrs.brand || "";
-    const address = attrs.address || "";
     const updated = attrs.last_updated ? formatUpdated(attrs.last_updated) : "";
     const content = `
       <div class="station-main">
         <strong>${escapeHtml(stationName)}</strong>
-        <span>${escapeHtml([brand, address].filter(Boolean).join(" · "))}</span>
         ${this._config.show_updated && updated ? `<em>${escapeHtml(updated)}</em>` : ""}
       </div>
       ${mapUrl ? `<span class="map-link" title="Open in Waze">›</span>` : ""}
