@@ -140,13 +140,10 @@ class FuelTrackerCard extends HTMLElement {
 
   _stationBlock(fuel, attrs, mapUrl) {
     const stationName = fuel.station?.state || "No station";
-    const brand = attrs.brand || "";
-    const address = attrs.address || "";
     const updated = attrs.last_updated ? formatUpdated(attrs.last_updated) : "";
     const content = `
       <div class="station-main">
         <strong>${escapeHtml(stationName)}</strong>
-        <span>${escapeHtml([brand, address].filter(Boolean).join(" · "))}</span>
         ${this._config.show_updated && updated ? `<em>${escapeHtml(updated)}</em>` : ""}
       </div>
       ${mapUrl ? `<span class="map-link" title="Open in Waze">›</span>` : ""}
@@ -497,6 +494,7 @@ class FuelWatchCard extends HTMLElement {
     this._config = {
       title: "Fuel Watch",
       hours_to_show: 168,
+      show_regional: true,
       ...config
     };
     this._history = new Map();
@@ -513,7 +511,7 @@ class FuelWatchCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 3;
+    return this._config?.show_regional === false ? 2 : 3;
   }
 
   _render() {
@@ -533,9 +531,11 @@ class FuelWatchCard extends HTMLElement {
             ${historyGraph(fuels)}
           </div>
           ${missingCount ? `<div class="watch-warning">${missingCount} price ${missingCount === 1 ? "entity is" : "entities are"} not available.</div>` : ""}
-          <div class="watch-regional">
-            ${fuels.map((fuel) => this._regionalPanel(fuel)).join("")}
-          </div>
+          ${this._config.show_regional ? `
+            <div class="watch-regional">
+              ${fuels.map((fuel) => this._regionalPanel(fuel)).join("")}
+            </div>
+          ` : ""}
         </div>
       </ha-card>
       <style>${watchStyles}</style>
@@ -565,7 +565,7 @@ class FuelWatchCard extends HTMLElement {
       location: stationLocation(station?.attributes || price?.attributes || {}),
       regional,
       regionalDisplay: regionalNumber === null ? "—" : `${regionalNumber.toFixed(1)}`,
-      regionalLocation: stationLocation(regional?.attributes || {}),
+      regionalLocation: regionalStationLocation(regional?.attributes || {}),
       history
     };
   }
@@ -652,10 +652,15 @@ class FuelWatchCardEditor extends HTMLElement {
   _render() {
     this.innerHTML = `
       <div class="editor">
-        <p>Configure this watch card in YAML. Add unrelated fuels you want to monitor side by side.</p>
+        <label class="editor-option">
+          <input id="show-regional" type="checkbox" ${this._config.show_regional !== false ? "checked" : ""}>
+          <span>Show regional section</span>
+        </label>
+        <p>Configure the remaining watch card options in YAML. Add unrelated fuels you want to monitor side by side.</p>
         <pre>type: custom:fuel-watch-card
 title: Fuel Watch
 hours_to_show: 168
+show_regional: true
 fuels:
   - name: Unleaded 91
     cheapest_price_entity: sensor.unleaded_91_cheapest_price
@@ -671,6 +676,16 @@ fuels:
           padding: 16px;
           color: var(--primary-text-color);
         }
+        .editor-option {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          cursor: pointer;
+        }
+        .editor-option input {
+          width: 18px;
+          height: 18px;
+        }
         pre {
           overflow: auto;
           padding: 12px;
@@ -679,6 +694,18 @@ fuels:
         }
       </style>
     `;
+
+    this.querySelector("#show-regional")?.addEventListener("change", (event) => {
+      this._config = {
+        ...this._config,
+        show_regional: event.target.checked
+      };
+      this.dispatchEvent(new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true
+      }));
+    });
   }
 }
 
@@ -738,6 +765,20 @@ function formatStationCount(value) {
 function stationLocation(attrs) {
   const brandAddress = [attrs.brand, attrs.address].filter(Boolean).join(" · ");
   return brandAddress || attrs.address || attrs.regional_city || attrs.capital_city || "No location";
+}
+
+function regionalStationLocation(attrs) {
+  const brand = attrs.brand || attrs.station_brand || "";
+  const suburb =
+    attrs.suburb ||
+    attrs.station_suburb ||
+    attrs.locality ||
+    attrs.city ||
+    attrs.town ||
+    attrs.regional_city ||
+    attrs.capital_city ||
+    "";
+  return [brand, suburb].filter(Boolean).join(" · ") || "No location";
 }
 
 function comparisonView(cheapestState, averageState, cityAttribute, fallback) {
